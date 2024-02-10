@@ -1,0 +1,155 @@
+---
+title: "Housing Project"
+author: "Megan Distelhorst"
+date: "2024-02-09"
+output: 
+ distill::distill_article:
+    code_folding: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+-   Our goal for the semester is to predict housing prices using data collected on the attributes/quality of previous houses sold
+-   Data is from 1950-2011, in the city of Ames, Iowa.
+-   Here are some variables we think are interesting.
+
+```{r include = FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(scales)
+library(RColorBrewer)
+library(corrplot)
+library(fields)
+library(MASS)
+point <- format_format(big.mark = " ", decimal.mark = ",", scientific = FALSE)
+train <- read_csv("Downloads/Junior/ECON 491/train.csv")
+mydata <- train
+```
+
+```{r Get Rid of LotArea Outliers, include = FALSE}
+Q <- quantile(mydata$LotArea, probs=c(.25, .75), na.rm = FALSE)
+iqr <- IQR(mydata$LotArea)
+eliminated<- subset(mydata, mydata$LotArea > (Q[1] - 1.5*iqr) 
+                    & mydata$LotArea < (Q[2]+1.5*iqr)
+                    & (is.na(mydata$MasVnrType) != TRUE)
+                    & (mydata$MasVnrType != "None")) 
+```
+
+## Masonry Type
+
+```{r masonryType}
+masonrytype <- ggplot(data = eliminated, aes(x = MasVnrType)) +
+  geom_histogram(stat="count", bins = 20)+
+  labs(x = "Type of Masonry", y = "Number of Units", 
+       title = "Type of Masonry in Unit") +
+  theme_minimal()
+masonrytype
+```
+
+## Masonry
+
+```{r masonry}
+masonry <- ggplot(data = eliminated, aes(x = MasVnrArea, y = SalePrice, 
+                                     color = LotArea, shape = MasVnrType)) +
+  geom_point()+
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_viridis_c(name = "Lot Area", option = "mako")  +
+  scale_shape_manual(values=c(15, 16, 3)) + 
+  labs(x = "Area of Masonry", y = "Price", 
+       title = "Area of Masonry vs Sale Price", shape = "Masonry Type") +
+  scale_y_continuous(labels = point) +
+  theme_classic()
+masonry
+```
+
+## Year of Remodel Box Plot
+
+```{r outlliers of YrRemodel}
+Q <- quantile(mydata$SalePrice, probs = c(0.25, 0.75))
+lower_bound <- Q[1] - 1.5 * IQR(mydata$SalePrice)
+upper_bound <- Q[2] + 1.5 * IQR(mydata$SalePrice)
+
+outliers <- mydata$SalePrice < lower_bound | mydata$SalePrice > upper_bound
+```
+
+```{r Breaks in Year Remodeled}
+remodel_breaks <- c(-Inf, 1950, 1970, 1990, 2010)
+remodel_labels <- c("<1950", "1951-70", "1971-90", "<2010")
+
+mydata$Remodel_Group <- cut(mydata$YearRemodAdd, 
+                            breaks = remodel_breaks, 
+                            labels = remodel_labels)
+```
+
+```{r Year of Remodel Box Plot}
+remodboxplot <- ggplot(data = mydata, aes(x = Remodel_Group, y = SalePrice)) +
+  geom_boxplot() +
+  geom_point(data = mydata[outliers, ], aes(color = YearRemodAdd), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Year of Remodel", y = "Sale Price", title = "Sale Price Distribution by Year of Remodel") +
+  scale_x_discrete(labels = c("Not Remodeled", "1951-1970", "1971-1990", "<2010")) +
+  scale_color_viridis_c(name = "Year Remod") +
+  theme_minimal()
+
+remodboxplot
+```
+
+## Year of Remodel Violin Plot
+
+```{r Year of Remodel Violin}
+remodviolinplot <- ggplot(data = mydata, 
+                          aes(x = Remodel_Group, 
+                              y = SalePrice)) +
+  geom_violin(trim = TRUE) +  # Use trim = FALSE to extend the density to the minimum and maximum values
+  geom_point(data = mydata[outliers, ], aes(color = YearRemodAdd), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Year of Remodel", y = "Sale Price", title = "Sale Price Distribution by Year of Remodel") +
+  scale_x_discrete(labels = c("Not Remodeled", "1951-1970", "1971-1990", "<2010")) +
+  scale_color_viridis_c(name = "Year Remod") +
+  scale_y_continuous(labels = point) +
+  theme_minimal()
+
+remodviolinplot
+```
+
+## Correlation Matrix
+
+This shows correlation between all **numeric** variables in the dataset.
+
+
+**Similar Variables**
+
+- Garage Cars and Garage Area
+
+- Basement Finished SF, Basement Unfinished SF
+
+**Uncorrelated Variables**
+
+- Screen Porch
+
+- 3Ssn Porch
+
+**Variables of Interest**
+
+- Above Ground Living Area (GrLivArea)
+
+```{r correlation matrix}
+mydata[sapply(mydata, is.numeric)][is.na(mydata[sapply(mydata, is.numeric)])] <- 0
+corr <- cor(mydata[, sapply(mydata, is.numeric)])
+
+# Rcolor Brewer
+my_colors <- colorRampPalette(brewer.pal(5, "Spectral"))(100)
+
+ord <- order(corr[1, ])
+corr_ord <- corr[ord, ord]
+corrplot(corr_ord, order = 'AOE', method = "ellipse", number.cex = 0.8, 
+         tl.cex = .45, tl.col = "black", col = my_colors, number.digits = 1)
+```
+```{r google, eval=FALSE, include=FALSE}
+vignette("trackdown-workflow")
+upload_file()
+trackdown::update_file(file = "~/Housing.Rmd", hide_code = FALSE)
+```
