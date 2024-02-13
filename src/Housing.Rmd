@@ -1,0 +1,358 @@
+---
+title: "Housing Project"
+author: "Megan Distelhorst"
+date: "2024-02-09"
+output: 
+ distill::distill_article:
+    code_folding: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Introduction
+
+-   Our goal for the semester is to predict housing prices using data collected on the attributes/quality of previous houses sold
+-   Data is from 1950-2011, in the city of Ames, Iowa.
+-   Here are some variables we think are interesting.
+
+```{r include = FALSE}
+library(dplyr)
+library(ggplot2)
+library(ggridges)
+library(hrbrthemes)
+library(viridis)
+library(readr)
+library(scales)
+library(RColorBrewer)
+library(corrplot)
+library(fields)
+library(MASS)
+library(AmesHousing)
+point <- format_format(big.mark = " ", decimal.mark = ",", scientific = FALSE)
+train <- read_csv("train.csv")
+mydata <- train
+ames <- ames_raw
+ames
+ames_school_districts_sf
+ames_schools_geo
+```
+
+Null Check
+
+```{r Nulls}
+nulls <- sort(colSums(is.na(mydata)), decreasing = TRUE)
+nulls[nulls>0]
+```
+
+```{r Convert similar ordinal scales to numbers}
+ordinal_mapping <- c("Ex" = 5, "Gd" = 4, "TA" = 3, "Fa" = 2, "Po" = 1, "NA" = 0)
+# Function to convert ordinal column to numeric
+convert_to_numeric <- function(column) {
+  # Replace NA values with "NA"
+  column[is.na(column)] <- "NA"  
+  # Convert to numeric using the mapping
+  numeric_values <- ordinal_mapping[column]
+  # Replace "NA" values with 0
+  numeric_values[numeric_values == "NA"] <- 0
+  return(numeric_values)
+}
+
+# List of ordinal columns to convert
+ordinal_columns <- c("BsmtQual", "BsmtCond", "ExterQual", "ExterCond", "FireplaceQu", "GarageQual", "GarageCond", "HeatingQC", "KitchenQual", "PoolQC")
+
+# Apply the conversion function to each column in the list
+for (col in ordinal_columns) {
+  mydata[[col]] <- convert_to_numeric(mydata[[col]])
+}
+
+# Print the resulting dataset
+head(mydata)
+
+```
+
+```{r nullCheck}
+nulls <- sort(colSums(is.na(mydata)), decreasing = TRUE)
+nulls[nulls>0]
+```
+
+```{r Get Rid of LotArea Outliers, include = FALSE}
+Q <- quantile(mydata$LotArea, probs=c(.25, .75), na.rm = FALSE)
+iqr <- IQR(mydata$LotArea)
+eliminated<- subset(mydata, mydata$LotArea > (Q[1] - 1.5*iqr) 
+                    & mydata$LotArea < (Q[2]+1.5*iqr)
+                    & (is.na(mydata$MasVnrType) != TRUE)
+                    & (mydata$MasVnrType != "None")) 
+```
+
+## Masonry Type
+
+```{r masonryType}
+masonrytype <- ggplot(data = eliminated, aes(x = MasVnrType)) +
+  geom_histogram(stat="count", bins = 20)+
+  labs(x = "Type of Masonry", y = "Number of Units", 
+       title = "Type of Masonry in Unit") +
+  theme_minimal()
+masonrytype
+```
+
+## Masonry
+
+```{r masonry}
+masonry <- ggplot(data = eliminated, aes(x = MasVnrArea, y = SalePrice, 
+                                     color = LotArea, shape = MasVnrType)) +
+  geom_point()+
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  scale_color_viridis_c(name = "Lot Area", option = "mako")  +
+  scale_shape_manual(values=c(15, 16, 3)) + 
+  labs(x = "Area of Masonry", y = "Price", 
+       title = "Area of Masonry vs Sale Price", shape = "Masonry Type") +
+  scale_y_continuous(labels = point) +
+  theme_classic()
+masonry
+```
+
+## Year of Remodel Box Plot
+
+```{r outliers of SalePrice}
+Q <- quantile(mydata$SalePrice, probs = c(0.25, 0.75))
+lower_bound <- Q[1] - 1.5 * IQR(mydata$SalePrice)
+upper_bound <- Q[2] + 1.5 * IQR(mydata$SalePrice)
+
+outliers <- mydata$SalePrice < lower_bound | mydata$SalePrice > upper_bound
+```
+
+```{r STDEV saleprice}
+  # Calculate the mean and standard deviation of the SalePrice column
+mean_SalePrice <- mean(mydata$SalePrice, na.rm=TRUE)
+std_dev_SalePrice <- sd(mydata$SalePrice, na.rm=TRUE)
+
+# Calculate 1, 2, and 3 standard deviations away from the mean
+one_std_dev_away <- mean_SalePrice + c(-1, 1) * std_dev_SalePrice
+two_std_dev_away <- mean_SalePrice + c(-2, 2) * std_dev_SalePrice
+three_std_dev_away <- mean_SalePrice + c(-3, 3) * std_dev_SalePrice
+
+# Print the results
+cat("1 Standard Deviation away: ", one_std_dev_away, "\n")
+cat("2 Standard Deviations away: ", two_std_dev_away, "\n")
+cat("3 Standard Deviations away: ", three_std_dev_away, "\n")
+```
+
+```{r Breaks in Year Remodeled}
+remodel_breaks <- c(-Inf, 1950, 1970, 1990, 2010)
+remodel_labels <- c("<1950", "1951-70", "1971-90", "<2010")
+
+mydata$Remodel_Group <- cut(mydata$YearRemodAdd, 
+                            breaks = remodel_breaks, 
+                            labels = remodel_labels)
+```
+
+```{r Year of Remodel Box Plot}
+remodboxplot <- ggplot(data = mydata, aes(x = Remodel_Group, y = SalePrice)) +
+  geom_boxplot() +
+  geom_point(data = mydata[outliers, ], aes(color = YearRemodAdd), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Year of Remodel", y = "Sale Price", title = "Sale Price Distribution by Year of Remodel") +
+  scale_x_discrete(labels = c("Not Remodeled", "1951-1970", "1971-1990", "<2010")) +
+  scale_color_viridis_c(name = "Year Remod") +
+  theme_minimal()
+
+remodboxplot
+```
+
+## Year of Remodel Violin Plot
+
+```{r Year of Remodel Violin}
+remodviolinplot <- ggplot(data = mydata, 
+                          aes(x = Remodel_Group, 
+                              y = SalePrice)) +
+  geom_violin(trim = TRUE) +  # Use trim = FALSE to extend the density to the minimum and maximum values
+  geom_point(data = mydata[outliers, ], aes(color = YearRemodAdd), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Year of Remodel", y = "Sale Price", title = "Sale Price Distribution by Year of Remodel") +
+  scale_x_discrete(labels = c("Not Remodeled", "1951-1970", "1971-1990", "<2010")) +
+  scale_color_viridis_c(name = "Year Remod") +
+  scale_y_continuous(labels = point) +
+  theme_minimal()
+
+remodviolinplot
+```
+
+## Correlation Matrix
+
+This shows correlation between all **numeric** variables in the dataset.
+
+**Similar Variables**
+
+-   Garage Cars and Garage Area
+
+-   Basement Finished SF, Basement Unfinished SF
+
+**Uncorrelated Variables**
+
+-   Screen Porch
+
+-   3Ssn Porch
+
+**Variables of Interest**
+
+-   Above Ground Living Area (GrLivArea)
+
+```{r correlation matrix}
+mydata[sapply(mydata, is.numeric)][is.na(mydata[sapply(mydata, is.numeric)])] <- 0
+corr <- cor(mydata[, sapply(mydata, is.numeric)])
+
+# Rcolor Brewer
+my_colors <- colorRampPalette(brewer.pal(5, "Spectral"))(100)
+
+ord <- order(corr[1, ])
+corr_ord <- corr[ord, ord]
+corrplot(corr_ord, order = 'AOE', method = "ellipse", number.cex = 0.8, 
+         tl.cex = .45, tl.col = "black", col = my_colors, number.digits = 1)
+```
+
+```{r google, eval=FALSE, include=FALSE}
+vignette("trackdown-workflow")
+upload_file()
+trackdown::update_file(file = "~/Housing.Rmd", hide_code = FALSE)
+```
+
+```{r next}
+mydata$pcBSMT <- predict(prcomp(~TotalBsmtSF+SalePrice, mydata))[,1]
+ggplot(mydata, aes(TotalBsmtSF, SalePrice, color = pcBSMT)) +
+  geom_point(shape = 16, size = 1, show.legend = FALSE) +
+  theme_minimal() +
+  scale_y_continuous(labels = point) + 
+  labs(x = "Basement SQFT", y = "Sale Price", 
+       title = "Basement Size and Sale Price") +
+  scale_color_gradient(low = "#0091ff", high = "#f0650e") +
+  scale_alpha(range = c(.05, .25))
+```
+
+## Alex's varaVroom Model
+
+Alex's model uses a reinforcement model to find the variables that have the most effect on **Sale Price**
+
+I suggested that we use the model to find the worst variables to use in regression. Below are a few visualization techniques to verify the results of the varaVroom model.
+
+The first variable it gave was the Street type "Pave".
+
+```{r Street Types}
+StreetType <- ggplot(data = mydata, aes(x = Street)) +
+  geom_histogram(stat="count", bins = 20)+
+  labs(x = "Street Type", y = "Number of Units", 
+       title = "Street Types") +
+  theme_minimal()
+StreetType
+```
+
+```{r streetPave}
+
+remodviolinplot <- ggplot(data = mydata, 
+                          aes(x = mydata$Street["Pave"], 
+                              y = SalePrice)) +
+  geom_violin(trim = TRUE) +  # Use trim = FALSE to extend the density to the minimum and maximum values
+  geom_point(data = mydata[outliers, ],aes(color = SalePrice), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Paved", y = "Sale Price", title = "Sale Price Distribution for Paved Street") +
+  scale_color_viridis_c(name = "Sale Price") +
+  scale_y_continuous(labels = point) +
+  theme_minimal()
+
+remodviolinplot
+```
+
+## Illakiya's Neighborhoods
+
+Illakiya Noticed that the **Neighborhood** variable holds a lot of information.
+
+This graph shows the relationship of each neighborhood to sale price.
+
+```{r test1}
+ggplot(mydata, aes(x = SalePrice, y = reorder(Neighborhood, SalePrice, FUN = mean), fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "name", option = "H") +
+  labs(title = 'Neighborhood and Sale Price', x = "Sale Price", y = "Neighborhood") +
+  scale_x_continuous(labels = point) +
+  theme(
+    legend.position = "none",
+    panel.spacing = unit(0.5, "lines"),
+    strip.text.x = element_text(size = 2),
+    strip.text.y = element_text(size = 3)
+  )
+```
+
+This one shows Neighborhood and Overall Quality. It seems like it is more widely distributed within each neighborhood than sale price, Especially with the lower priced neighborhoods, which are on the bottom of the graph
+
+```{r Neighborhoood OverallQuality}
+ggplot(mydata, aes(x = OverallQual, y = reorder(Neighborhood, SalePrice, FUN = mean), fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "name", option = "H") +
+  labs(title = 'Neighborhood and Overall Quality', x = "Overall Quality", y = "Neighborhood") +
+  scale_x_continuous(labels = point) +
+  theme(
+    legend.position = "none",
+    panel.spacing = unit(1, "lines"),
+    strip.text.x = element_text(size = 2),
+    strip.text.y = element_text(size = 1.5)
+  )
+```
+
+This one doesn't seem to vary by neighborhood.
+
+```{r Neighborhood and Condition}
+ggplot(mydata, aes(x = OverallCond, y = reorder(Neighborhood, SalePrice, FUN = mean), fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "name", option = "H") +
+  labs(title = 'Neighborhood and Overall Condition', x = "Overall Condition", y = "Neighborhood") +
+  scale_x_continuous(labels = point) +
+  theme(
+    legend.position = "none",
+    panel.spacing = unit(1, "lines"),
+    strip.text.x = element_text(size = 2),
+    strip.text.y = element_text(size = 1.5))
+```
+
+## Title
+
+  - bullets
+
+
+```{r Neighborhood and Lot Area}
+ggplot(mydata, aes(x = LotArea, y = reorder(Neighborhood, SalePrice, FUN = mean), fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "name", option = "H") +
+  labs(title = 'Neighborhood and Lot Size', x = "Lot Area", y = "Neighborhood") +
+  scale_x_continuous(labels = point) +
+  theme(
+    legend.position = "none",
+    panel.spacing = unit(1, "lines"),
+    strip.text.x = element_text(size = 2),
+    strip.text.y = element_text(size = 1.5))
+```
+
+```{r Neighborhood and Masonry}
+ggplot(mydata, aes(x = MasVnrArea, y = reorder(Neighborhood, SalePrice, FUN = mean), fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "name", option = "H") +
+  labs(title = 'Neighborhood and Masonry', x = "Masonry", y = "Neighborhood") +
+  scale_x_continuous(labels = point) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    panel.spacing = unit(1, "lines"),
+    strip.text.x = element_text(size = 2),
+    strip.text.y = element_text(size = 1.5))
+```
+
+```{r test}
+NWAmesviolinplot <- ggplot(data = mydata, 
+                          aes(x = mydata$Neighborhood["NWAmes"], 
+                              y = SalePrice)) +
+  geom_violin(trim = TRUE) +  # Use trim = FALSE to extend the density to the minimum and maximum values
+  geom_point(data = mydata[outliers, ],aes(color = SalePrice), position = position_jitter(width = 0.15), size = 1.5) +
+  labs(x = "Paved", y = "Sale Price", title = "Sale Price Distribution for NW Ames") +
+  scale_color_viridis_c(name = "Sale Price") +
+  scale_y_continuous(labels = point) +
+  theme_minimal()
+
+NWAmesviolinplot
+```
