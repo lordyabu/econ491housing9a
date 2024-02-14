@@ -33,7 +33,6 @@ library(AmesHousing)
 point <- format_format(big.mark = " ", decimal.mark = ",", scientific = FALSE)
 train <- read_csv("train.csv")
 mydata <- train
-ames <- ames_raw
 ??AmesHousing 
 ##contains raw and processed data tables, plus longlat and school districts.
 ```
